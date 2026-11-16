@@ -1,0 +1,34 @@
+Necesito que regeneres la "Matriz Categoría de implantación x Subsidiaria - Nivel de Surtido" para Central Oeste (NetSuite), usando el tool mcp__NetSuite__ns_runCustomSuiteQL (NO uses saved searches ni la extensión de Chrome, solo API/SuiteQL).
+
+QUÉ ES ESTE REPORTE
+Una matriz donde las filas son las categorías de implantación (cseg_tk_categoria_s) y las columnas son las sucursales, agrupadas visualmente bajo su subsidiaria. La intersección es el nivel de surtido configurado (Troncal / Medio / Ampliado / Exclusivo Ecommerce / X / No Aplica) para esa combinación categoría-sucursal.
+
+FUENTE DE DATOS
+Tabla customrecord_tk_pdv_nvl_config (NO el reporte de ítems, esto es la tabla de configuración en bruto). Traer con BUILTIN.DF() para evitar el permiso bloqueado sobre los segmentos personalizados:
+
+SELECT id, custrecord_tk_pdv_nvl_config_cat AS cat_id, BUILTIN.DF(custrecord_tk_pdv_nvl_config_cat) AS cat_nombre,
+       custrecord_tk_pdv_nvl_config_loca AS loca_id, BUILTIN.DF(custrecord_tk_pdv_nvl_config_loca) AS loca_nombre,
+       custrecord_tk_pdv_nvl_config_subsi AS subsi_id, BUILTIN.DF(custrecord_tk_pdv_nvl_config_subsi) AS subsi_nombre,
+       custrecord_tk_pdv_nvl_config_lvl AS lvl_id, BUILTIN.DF(custrecord_tk_pdv_nvl_config_lvl) AS lvl_nombre,
+       custrecord_tk_pdv_nvl_config_status AS status_id, BUILTIN.DF(custrecord_tk_pdv_nvl_config_status) AS status_nombre
+FROM customrecord_tk_pdv_nvl_config ORDER BY id
+
+Son ~2.400 filas, pageSize 1000 → 3 páginas (pageIndex 0, 1, 2).
+
+⚠ CAMPO STATUS — CRÍTICO, no ignorarlo:
+Puede haber más de una fila para la misma combinación (categoría, sucursal). El campo custrecord_tk_pdv_nvl_config_status distingue:
+- status_id=3 "Enviado sin Errores" → configuración confirmada/vigente.
+- status_id=1 "Creado y Pendiente de Envío" / status_id=2 "Actualizado y Pendiente de Envío" → cambio cargado pero aún NO aplicado.
+Regla de resolución: para cada (categoría, sucursal), usar la fila con status "Enviado sin Errores" si existe (hasta ahora nunca hay más de una por combinación). Si NO existe ninguna fila "Enviado" y solo hay fila(s) pendiente(s), usar la más reciente (mayor id) pero marcarla como pendiente/no confirmada (en el Excel: texto en itálica + asterisco al final, ej. "Troncal *").
+
+AGRUPACIÓN POR SUBSIDIARIA
+La subsidiaria (custrecord_tk_pdv_nvl_config_subsi) NO es 1:1 con sucursal: varias sucursales pueden compartir una subsidiaria (ej. STONE S.A. agrupa ST1, ST2, ST3, ST4, STO; ELKAV S.R.L. agrupa ASM, CRA, LKV, MAT, MON, SAN, SUD), y dentro de una misma subsidiaria las distintas sucursales suelen tener niveles DISTINTOS para la misma categoría (ELKAV en particular). Por eso NO colapsar a una columna por subsidiaria: mantener una columna por sucursal (46 en la última corrida), ordenadas por subsidiaria, con la subsidiaria como encabezado combinado (merged) en la fila 1 y el código de sucursal en la fila 2.
+
+ENTREGABLE (Excel, dos hojas):
+1. "Notas y leyenda" (primera/activa): explica la metodología, el hallazgo del campo status (cuántas filas "Enviado" vs "Pendiente", y qué % de combinaciones categoría-sucursal solo tienen fila pendiente), por qué las columnas son sucursales agrupadas por subsidiaria y no subsidiarias puras, la leyenda de colores, y una nota si la categoría 40 (u otra) sigue sin ninguna fila en la tabla.
+2. "Categoría x Subsidiaria": fila 1 = subsidiaria (merged), fila 2 = código de sucursal, columna A = código de categoría, columna B = nombre de categoría, luego una columna por sucursal con el nivel de surtido (texto), coloreado por nivel:
+   Troncal=1E7F3C/texto blanco, Medio=70AD47/texto blanco, Ampliado=C6E0B4/texto verde oscuro, Exclusivo Ecommerce=2E75B6/texto blanco, X=7030A0/texto blanco, No Aplica=D9D9D9/texto gris. Celda en blanco = sin configuración cargada. Itálica+asterisco = valor pendiente de envío no confirmado.
+
+Guardar en outputs y entregar con SendUserFile.
+
+NOTA: este reporte comparte fuente con el "Reporte Artículo x Sucursal - Habilitación de Surtido" (41.584 ítems x 38 sucursales) — si ese otro reporte se regenera, aplicar también ahí la misma resolución por status (al momento de este prompt, 39 combinaciones categoría-sucursal, concentradas en FLB y ASM, usaban un valor desactualizado por no considerar el status).
