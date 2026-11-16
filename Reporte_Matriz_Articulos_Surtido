@@ -1,0 +1,37 @@
+Necesito que regeneres el "Reporte Artículo x Sucursal - Habilitación de Surtido" para Central Oeste (NetSuite), usando el tool mcp__NetSuite__ns_runCustomSuiteQL (NO uses saved searches ni la extensión de Chrome, solo API/SuiteQL).
+
+CONTEXTO DEL REPORTE
+Por cada artículo inventariable (una fila) hay que indicar, para cada sucursal (una columna), si ese artículo está habilitado (SI) o no (NO), comparando dos cosas:
+1. El nivel de surtido propio del artículo: item.custitem_tk_clasif_assor (FK a customrecord_tk_nvl_sur).
+2. El nivel de surtido que la sucursal requiere para la categoría de implantación de ese artículo: hay que buscarlo en customrecord_tk_pdv_nvl_config, cruzando por categoría (custrecord_tk_pdv_nvl_config_cat = item.cseg_tk_categoria_s) y sucursal (custrecord_tk_pdv_nvl_config_loca).
+
+Catálogo de niveles (customrecord_tk_nvl_sur): id1=Ampliado, id2=Medio, id3=Troncal, id9=Exclusivo Ecommerce, id10=X (Medicamentos), id4=No Aplica.
+
+REGLA DE EVALUACIÓN (SI / NO / SIN CONFIG) — esta regla es una interpretación mía, no confirmada formalmente por el usuario; si él la corrige en algún momento, usar la versión corregida en adelante:
+- Si no existe fila de configuración para esa combinación (categoría, sucursal) → SIN CONFIG.
+- Si el nivel requerido es "No Aplica" → NO.
+- Si el nivel requerido es "Exclusivo Ecommerce" o "X" → SI solo si el artículo tiene exactamente ese mismo nivel; si no, NO.
+- Si el nivel requerido es Ampliado/Medio/Troncal → jerarquía anidada: SI si rank(nivel del artículo) >= rank(nivel requerido), con rank Ampliado=1, Medio=2, Troncal=3 (es decir, un artículo Troncal aparece en sucursales Troncal, Medio y Ampliado; uno Ampliado solo en sucursales Ampliado).
+
+UNIVERSO Y SUCURSALES
+- Procesar el 100% de los artículos con itemtype = 'InvtPart' (última vez fueron 41.584, activos e inactivos incluidos).
+- Partir de las sucursales configuradas en customrecord_tk_pdv_nvl_config (grupo por custrecord_tk_pdv_nvl_config_loca) y EXCLUIR estas 8 del análisis:
+  ACE (Centro de distribución) [location id 40], COF [223], FAN [46], LKV [45], PFM [117], Producto terminado Marca Propia (35) [127], ROSETO [174], STO [129].
+  (Si en el futuro la lista de exclusión cambia, pedir confirmación antes de asumir que sigue igual.)
+
+CAMPOS A TRAER POR ARTÍCULO (vía BUILTIN.DF() para sortear el permiso bloqueado sobre los segmentos personalizados — NO intentar join directo a esos custom records, da 403):
+SELECT id, itemid, displayname, cseg_tk_categoria_s, custitem_tk_clasif_assor, isinactive,
+       BUILTIN.DF(cseg_tek_arbnegoc) AS negocio,
+       BUILTIN.DF(cseg_tek_cat_2) AS categoria_arbol,
+       BUILTIN.DF(cseg_tek_arbolsubc2) AS subcategoria,
+       BUILTIN.DF(cseg_tek_arbolfam2) AS familia,
+       BUILTIN.DF(cseg_tk_categoria_s) AS cat_implant_nombre
+FROM item WHERE itemtype = 'InvtPart' ORDER BY id
+
+NOTA DE PAGINACIÓN: pageSize queda topeado en 1000 filas reales por página aunque pidas más. Para ~41.500 ítems son ~42 páginas (pageIndex 0 a 41). Pedilas en tandas de 6-7 llamadas en paralelo por mensaje. Los resultados grandes se guardan en archivos de texto (no usar Read, sino Python/json.load) porque superan el límite de tokens por tool call.
+
+ENTREGABLE (Excel, dos hojas, mismo estilo que la versión anterior):
+1. Hoja "Resumen y metodología" (primera/activa): explica la regla, lista las sucursales excluidas, resume estadísticas (celdas SI/NO/SIN CONFIG), top categorías con más huecos de configuración, y deja marcada en rojo la advertencia de que la regla de negocio sigue pendiente de confirmación formal.
+2. Hoja "Reporte SI-NO": una fila por artículo con columnas ID Item, Código, Nombre, Categoría de implantación (código y descripción), Negocio, Categoría (árbol), Subcategoría, Familia, Nivel propio del artículo, Inactivo, y luego una columna por sucursal (código) con SI/NO/SIN CONFIG, coloreada con formato condicional (verde=SI, rojo=NO, naranja=SIN CONFIG), con autofiltro y fila de encabezado congelada.
+
+Guardar el archivo en outputs y entregarlo con SendUserFile.
