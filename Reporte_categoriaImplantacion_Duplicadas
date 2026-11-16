@@ -1,0 +1,32 @@
+Necesito que regeneres el "Listado de Categorías de Implantación Repetidas por Tienda" para Central Oeste (NetSuite), usando el tool mcp__NetSuite__ns_runCustomSuiteQL (NO uses saved searches ni la extensión de Chrome, solo API/SuiteQL).
+
+QUÉ ES ESTE REPORTE
+Detecta, dentro de la tabla de configuración real customrecord_tk_pdv_nvl_config, toda combinación (categoría de implantación, tienda) que tenga 2 o más filas cargadas — es decir, la categoría está "repetida" para esa tienda. Esto es un chequeo de calidad de datos sobre la tabla fuente, no sobre el reporte de ítems.
+
+ALCANCE DEFINIDO (confirmado con el usuario, no volver a preguntar salvo que él lo cambie):
+- Repetición = CUALQUIER duplicado: toda combinación con 2+ filas, sea que el nivel de surtido coincida entre esas filas (redundante) o difiera (conflicto real). Listar ambos tipos, marcando cuál es cada uno.
+- Tiendas: solo las 38 usadas en el reporte Artículo x Sucursal, es decir, las 46 de la tabla de configuración MENOS estas 8: ACE (Centro de distribución) [loc id 40], COF [223], FAN [46], LKV [45], PFM [117], Producto terminado Marca Propia (35) [127], ROSETO [174], STO [129].
+- Incluir también las filas marcadas isInactive = 'T' (no excluir inactivas).
+- No hay campo de "mensaje" de integración en este custom record (se verificó con ns_getSuiteQLMetadata — los únicos campos relacionados con la sincronización a BRIDGE son custrecord_tk_pdv_nvl_config_status y dos fechas: custrecord_tk_pdv_nvl_config_map_up_date y custrecord_tk_pdv_nvl_config_ui_up_date). Usar solo el status; no se necesitan las fechas de BRIDGE salvo que el usuario pida lo contrario.
+
+QUERY (traer TODA la tabla, no solo duplicados — filtrar duplicados en Python después de traer todo, porque SuiteQL no soporta bien HAVING COUNT con estos custom fields):
+SELECT id, custrecord_tk_pdv_nvl_config_cat AS cat_id, BUILTIN.DF(custrecord_tk_pdv_nvl_config_cat) AS cat_nombre,
+       custrecord_tk_pdv_nvl_config_loca AS loca_id, BUILTIN.DF(custrecord_tk_pdv_nvl_config_loca) AS loca_nombre,
+       custrecord_tk_pdv_nvl_config_lvl AS lvl_id, BUILTIN.DF(custrecord_tk_pdv_nvl_config_lvl) AS lvl_nombre,
+       custrecord_tk_pdv_nvl_config_status AS status_id, BUILTIN.DF(custrecord_tk_pdv_nvl_config_status) AS status_nombre,
+       isinactive, TO_CHAR(created, 'YYYY-MM-DD HH24:MI') AS created_str, TO_CHAR(lastmodified, 'YYYY-MM-DD HH24:MI') AS lastmod_str
+FROM customrecord_tk_pdv_nvl_config ORDER BY id
+
+~2.400 filas, pageSize 1000 → 3 páginas (pageIndex 0, 1, 2).
+
+LÓGICA EN PYTHON
+1. Filtrar filas a las 38 tiendas (excluir las 8 location ids de arriba).
+2. Agrupar por (cat_id, loca_id). Quedarse solo con los grupos de 2+ filas.
+3. Para cada grupo, clasificar: si hay más de un lvl_id distinto entre sus filas → "CONFLICTO (niveles distintos)"; si no → "REDUNDANTE (mismo nivel repetido)".
+4. Determinar "la vigente": preferir la fila con status_id=3 (Enviado sin Errores); si ninguna fue enviada, usar la de mayor id entre las pendientes (status_id 1 o 2), marcándola igual como la mejor aproximación disponible (no confirmada).
+
+ENTREGABLE (Excel, dos hojas):
+1. "Resumen" (primera/activa): qué es el listado, alcance (38 tiendas, incluye inactivas), estadísticas globales (combinaciones evaluadas, repetidas, conflicto vs redundante, filas totales involucradas, cuántas inactivas), tabla de repeticiones por tienda (ordenada de mayor a menor), explicación de cómo se define "la vigente", y la nota de que no existe campo de mensaje de integración en esta tabla.
+2. "Categorías repetidas por tienda": una fila por cada fila de configuración duplicada (no una por combinación — si una combinación tiene 3 filas, van las 3), ordenado por tienda y luego categoría, con columnas: Tienda, Cat. código, Categoría de implantación, ID fila config, Nivel de surtido, Estado envío a BRIDGE, Inactivo, Creado, Última modificación, Tipo de duplicado, ¿Es la vigente?. Color de fondo rojo claro (FFC7CE) para filas de tipo CONFLICTO, amarillo (FFEB9C) para REDUNDANTE; texto en verde/negrita en la fila marcada como vigente. Autofiltro y encabezado congelado.
+
+Guardar en outputs y entregar con SendUserFile.
