@@ -1,0 +1,10 @@
+Regenerá la “Matriz Categoría de implantación x Subsidiaria - Nivel de Surtido” usando como única fuente /mnt/user-data/uploads/db4c0e43-ListadeTKConfiguraci_ndeSurtidoporPDV438.xlsx (mismas columnas que arriba). No usar ns_runCustomSuiteQL; esta fuente alcanza sin huecos para este reporte.
+
+Transformaciones:
+
+“TK - Tienda (PDV)”: código de sucursal = último segmento después de “ : “ (46 tiendas distintas en el archivo).
+“TK - Subsidiaria”: nombre corto = último segmento después de “ : “ (ej. “Farmacia Central Oeste : Holding FCO : Market : STONE S.A.” → “STONE S.A.”; 33 subsidiarias distintas).
+
+Regla de resolución por Estado del envío a BRIDGE (igual que el original): para cada (categoría, tienda), usar la fila con Estado = “Enviado sin Errores” si existe; si solo hay pendiente(s), usar la de mayor ID interno y marcarla en itálica + asterisco (ej. “Troncal *”).
+
+Entregable: hoja “Notas y leyenda” (metodología, hallazgo del campo status con conteo Enviado vs Pendiente y % de combinaciones solo-pendientes, por qué las columnas son sucursales agrupadas por subsidiaria y no subsidiarias puras, leyenda de colores, nota si alguna categoría sigue sin ninguna fila) + hoja “Categoría x Subsidiaria” (fila 1 = subsidiaria combinada/merged, fila 2 = código de sucursal, columna A = código de categoría, columna B = nombre de categoría, luego una columna por sucursal con el nivel coloreado: Troncal=1E7F3C/blanco, Medio=70AD47/blanco, Ampliado=C6E0B4/verde oscuro, Exclusivo Ecommerce=2E75B6/blanco, X=7030A0/blanco, No Aplica=D9D9D9/gris; celda en blanco = sin configuración cargada). Guardar en outputs y entregar con SendUserFile.
